@@ -592,13 +592,6 @@ otherwise as 'Buffer'."
                           (or file-path name-for-header)))
           (insert "\n")))))
 
-  (defun bonk--truncate-preview (str &optional lines)
-    "Return STR truncated to LINES (default 10)."
-    (let* ((n (or lines 10))
-           (parts (split-string str "\n"))
-           (slice (seq-take parts n)))
-      (string-join slice "\n")))
-
 ;;;###autoload
   (defun bonk-view ()
     "Open a buffer displaying the current context in a Magit-like UI."
@@ -773,25 +766,6 @@ buffer’s file is part of any Bonk context."
 Schedules a view refresh.  Throttling is handled by `bonk--schedule-refresh'."
   (bonk--schedule-refresh))
 
-;;—---------------------------------------------------------------------- 
-;; Update static line numbers for any marker-based entries in this buffer,
-;; so that on buffer-kill we can still fall back to file + last-known lines.
-(defun bonk--update-entry-static-range (ctx-name entry)
-  "For ENTRY (in context CTX-NAME), if it has markers, recompute
-its start-line/end-line and bump the context’s :updated timestamp."
-  (let ((sm (bonk-entry-start-marker entry))
-        (em (bonk-entry-end-marker   entry)))
-    (when (and sm em
-               (marker-buffer sm) ; only if buffer still live
-               (eq (marker-buffer sm) (current-buffer)))
-      (let* ((pos1 (marker-position sm))
-             (pos2 (marker-position em))
-             (ln1  (line-number-at-pos pos1 t))
-             (ln2  (line-number-at-pos pos2 t)))
-        (setf (bonk-entry-start-line entry) ln1)
-        (setf (bonk-entry-end-line   entry) ln2)
-        (bonk--update-ts ctx-name)))))
-
 
 ;;; Managing buffer-local hooks ----------------------------------------------
 (defun bonk--on-buffer-kill ()
@@ -839,6 +813,8 @@ its start-line/end-line and bump the context’s :updated timestamp."
                            after-change-functions))
           (remove-hook 'after-change-functions
                        #'bonk--buffer-change-refresh t)
+          (remove-hook 'kill-buffer-hook
+                       #'bonk--on-buffer-kill t)
           (kill-local-variable 'bonk--buffer-hook-installed))))))
 
 
