@@ -12,8 +12,8 @@
 
 ;; Bonk provides lightweight, named "contexts" composed of files, buffers, or
 ;; arbitrary regions within them.  A context can then be exported as
-;; XML-wrapped text – or any other format you configure – ready for consumption
-;; by local LLM tooling.
+;; XML-wrapped text, markdown, or any other format you configure for consumption
+;; by LLM tooling.
 ;;
 ;;  * Create multiple named contexts.
 ;;  * Add / remove whole files, whole buffers, or specific line ranges.
