@@ -529,50 +529,68 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
       (goto-char (point-min))))
 
   (defun bonk--insert-entry-section (entry)
-    "Insert magit section for ENTRY, collapsible, using an indirect buffer."
-    (let* ((live-buf (bonk--entry-live-buffer entry))
-	   (src-buf  (or live-buf
-			 (and (bonk-entry-file-path entry)
-			      (find-file-noselect (bonk-entry-file-path entry) t))))
-	   ;; Create an indirect buffer without selecting it
-	   (ind-buf  (make-indirect-buffer
-		      src-buf
-		      (generate-new-buffer-name
-		       (format "%s<bonk>" (buffer-name src-buf)))
-		      t))
-	   (rng        (bonk--entry-range-lines entry))
-	   (start-line (or (car rng) 1))
-	   (end-line   (or (cdr rng)
-			   (with-current-buffer src-buf
-			     (line-number-at-pos (point-max) t))))
-	   beg end
-	   (header     (format "%s %s%s"
-			       (capitalize (symbol-name (if live-buf 'buffer 'file)))
-			       (or (when live-buf (buffer-name live-buf))
-				   (bonk-entry-file-path entry))
-			       (when (and start-line end-line)
-				 (format " (%d–%d)" start-line end-line)))))
-      ;; Narrow the indirect buffer to the entry's region
-      (with-current-buffer ind-buf
-        (widen)
-        (goto-char (point-min))
-        (forward-line (1- start-line))
-        (setq beg (point))
-        (goto-char (point-min))
-        (forward-line (1- end-line))
-        (end-of-line)
-        (setq end (point))
-        (narrow-to-region beg end))
-      ;; Insert a collapsible magit section with the full content
-      (magit-insert-section (entry entry)
-			    (magit-insert-heading header)
-			    (insert "
-")
-			    (insert-buffer-substring ind-buf)
-			    (insert "
-"))
-      ;; Clean up the indirect buffer
-      (kill-buffer ind-buf)))
+    "Insert magit section for ENTRY, collapsible, using an indirect buffer.
+If ENTRY has a file-path, it's labelled as 'File' in the view,
+otherwise as 'Buffer'."
+    (let* ((file-path (bonk-entry-file-path entry))
+	   (display-type-str (if file-path "File" "Buffer"))
+	   (name-for-header (bonk-entry-name entry)) ; Buffer name for 'buffer' type, full path for 'file' type
+	   (rng (bonk--entry-range-lines entry)) ; Get (start . end) lines, using markers if available
+
+           (header (format "%s %s%s"
+                           (capitalize display-type-str)
+                           name-for-header
+                           (if (car rng) ; If specific start line is present in rng
+                               (format " (%d–%d)" (car rng) (cdr rng))
+                             "")))
+
+           (live-buf (bonk--entry-live-buffer entry))
+           ;; src-buf for content: existing live-buf, or try to open file without selecting
+           (src-buf (or live-buf
+			(and file-path (find-file-noselect file-path t nil t))))) ; RAWFILE=t, NOWARN=nil, NOSELECT=t
+
+      (if (buffer-live-p src-buf)
+          (let* ((start-line-for-narrow (or (car rng) 1)) ; 1-based start line for narrowing
+		 (end-line-for-narrow   (or (cdr rng) ; 1-based end line for narrowing
+                                            (with-current-buffer src-buf
+                                              (line-number-at-pos (point-max) t))))
+		 ;; Create an indirect buffer without selecting it
+		 (ind-buf (make-indirect-buffer
+                           src-buf
+                           (generate-new-buffer-name
+                            (format "%s<bonk-view>" (buffer-name src-buf))) ; Unique name for indirect buffer
+                           t)) ; t means CLONEVARS is nil -> don't select buffer, don't run mode hooks
+		 beg end)
+
+            ;; Narrow the indirect buffer to the entry's region
+            (with-current-buffer ind-buf
+              (widen)
+              (goto-char (point-min))
+              (forward-line (1- start-line-for-narrow))
+              (setq beg (point))
+              (goto-char (point-min))
+              (forward-line (1- end-line-for-narrow))
+              (end-of-line)
+              (setq end (point))
+              (narrow-to-region beg end))
+
+            ;; Insert a collapsible magit section with the full content
+            (magit-insert-section (entry entry)
+              (magit-insert-heading header)
+              (insert "\n") ; Newline before content
+              (insert-buffer-substring ind-buf)
+              (insert "\n")) ; Newline after content
+
+            ;; Clean up the indirect buffer
+            (kill-buffer ind-buf))
+
+	;; Fallback: src-buf is not a live buffer (e.g., file not found or unreadable)
+	(magit-insert-section (entry entry)
+          (magit-insert-heading header) ; Show the header anyway
+          (insert "\n")
+          (insert (format "  [Content for %s not available. File may be missing or unreadable.]"
+                          (or file-path name-for-header)))
+          (insert "\n")))))
 
   (defun bonk--truncate-preview (str &optional lines)
     "Return STR truncated to LINES (default 10)."
