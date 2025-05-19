@@ -620,11 +620,11 @@ otherwise as 'Buffer'."
 (defun bonk--entry-description (entry)
   "Return a one-line string describing ENTRY (type, name, lines)."
   (let* ((type     (capitalize (symbol-name (bonk-entry-type entry))))
-         (name     (bonk-entry-name entry))
-         (rng      (bonk--entry-range-lines entry))
-         (range-str (if (car rng)
-                        (format " (%d–%d)" (car rng) (cdr rng))
-                      "")))
+	 (name     (bonk-entry-name entry))
+	 (rng      (bonk--entry-range-lines entry))
+	 (range-str (if (car rng)
+			(format " (%d–%d)" (car rng) (cdr rng))
+		      "")))
     (concat type " " name range-str)))
 
 ;;;###autoload
@@ -632,11 +632,11 @@ otherwise as 'Buffer'."
   "Prompt to remove a Bonk ENTRY from the current context."
   (interactive
    (let* ((plist  (bonk--context-plist bonk-current-context))
-          (ents   (plist-get plist :entries))
-          (alts   (mapcar (lambda (e) (cons (bonk--entry-description e) e))
-                          ents))
-          (choice (completing-read "Remove entry: "
-                                   (mapcar #'car alts) nil t)))
+	  (ents   (plist-get plist :entries))
+	  (alts   (mapcar (lambda (e) (cons (bonk--entry-description e) e))
+			  ents))
+	  (choice (completing-read "Remove entry: "
+				   (mapcar #'car alts) nil t)))
      (list (cdr (assoc choice alts)))))
   (unless entry
     (user-error "No entry selected"))
@@ -655,10 +655,10 @@ Prompts for confirmation, unwires any BUFFER-based hooks, then removes the conte
   (when (yes-or-no-p (format "Really delete context '%s'? " name))
     ;; first, unwire any buffer‐based hooks, without touching the plist
     (let* ((plist   (bonk--context-plist name))
-           (entries (plist-get plist :entries)))
+	   (entries (plist-get plist :entries)))
       (dolist (e entries)
-        (when (eq (bonk-entry-type e) 'buffer)
-          (bonk--maybe-remove-buffer-hook (bonk-entry-name e)))))
+	(when (eq (bonk-entry-type e) 'buffer)
+	  (bonk--maybe-remove-buffer-hook (bonk-entry-name e)))))
     ;; now drop the context in one go
     (remhash name bonk--contexts)
     ;; clear if it was current
