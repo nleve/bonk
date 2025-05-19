@@ -222,6 +222,7 @@ Handles both marker-based and static line-based entries."
                               :start-line start :end-line end)
          (bonk-entry-create :type 'file
                             :name (expand-file-name file)
+                            :file-path (expand-file-name file)
                             :start-line start :end-line end))))))
 
 ;;;###autoload
@@ -387,12 +388,27 @@ characters."
   (xml-escape-string str nil))
 
 (defun bonk--entry-range-lines (entry)
-  "Compute a pair (START . END) line numbers for ENTRY, preferring markers."
-  (if (and (bonk-entry-start-marker entry) (bonk-entry-end-marker entry))
-      (cons (line-number-at-pos (marker-position (bonk-entry-start-marker entry)) t)
-            (line-number-at-pos (marker-position (bonk-entry-end-marker entry)) t))
-    (cons (bonk-entry-start-line entry)
-          (bonk-entry-end-line entry))))
+  "Compute a pair (START . END) line numbers for ENTRY, preferring markers.
+Ensures that line numbers are calculated in the context of the marker's buffer."
+  (let ((start-m (bonk-entry-start-marker entry))
+        (end-m (bonk-entry-end-marker entry)))
+    (if (and start-m end-m) ; Markers are present in the entry structure
+        (let* ((marker-buf (marker-buffer start-m)) ; Buffer the start marker belongs to
+               ;; Get positions; these will be nil if marker's buffer was killed
+               (start-pos (marker-position start-m))
+               (end-pos (marker-position end-m)))
+          ;; Check if markers are valid: pointing to the same, live buffer, and positions resolved
+          (if (and marker-buf ; Start marker has a buffer
+                   (eq marker-buf (marker-buffer end-m)) ; Both markers in the same buffer
+                   (buffer-live-p marker-buf) ; That buffer is live
+                   start-pos end-pos) ; And their positions are valid (i.e., not nil)
+              (with-current-buffer marker-buf
+                (cons (line-number-at-pos start-pos t)
+                      (line-number-at-pos end-pos t)))
+            ;; Fallback to static lines if markers are problematic (e.g., buffer killed, inconsistent)
+            (cons (bonk-entry-start-line entry) (bonk-entry-end-line entry))))
+      ;; Fallback if entry doesn't have markers set up (e.g. 'file' type entry)
+      (cons (bonk-entry-start-line entry) (bonk-entry-end-line entry)))))
 
 (defun bonk-format-entry-xml (entry &optional indent)
   "Return XML string for ENTRY with INDENT spaces (default 2), exporting
@@ -495,41 +511,68 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
   (define-key bonk-view-mode-map (kbd "d")   #'bonk-view-remove-entry)
   (define-key bonk-view-mode-map (kbd "DEL") #'bonk-view-remove-entry)
 
+  ;;; Updated view refresh to use full content sections
   (defun bonk--view-refresh ()
-    "Populate the Bonk view buffer."
+    "Populate the Bonk view buffer with collapsible sections showing full content."
     (let* ((inhibit-read-only t)
-           (ctx bonk-current-context)
-           (plist (and ctx (bonk--context-plist ctx))))
+	   (ctx bonk-current-context)
+	   (plist (and ctx (bonk--context-plist ctx))))
       (erase-buffer)
       (if (null ctx)
-          (insert "No active Bonk context.\n")
-        (let ((entries (plist-get plist :entries)))
-          (magit-insert-section (root)
-            (magit-insert-heading (format "Context %s (items: %d)" ctx (length entries)))
-            (dolist (entry entries)
-              (bonk--insert-entry-section entry)))))
+	  (insert "No active Bonk context.\n")
+	(let ((entries (plist-get plist :entries)))
+	  (magit-insert-section (root)
+	    (magit-insert-heading
+	      (format "Context %s (items: %d)" ctx (length entries)))
+	    (dolist (entry entries)
+	      (bonk--insert-entry-section entry)))))
       (goto-char (point-min))))
 
   (defun bonk--insert-entry-section (entry)
-    "Insert magit section for ENTRY, collapsible."
+    "Insert magit section for ENTRY, collapsible, using an indirect buffer."
     (let* ((live-buf (bonk--entry-live-buffer entry))
-           (display-type (if live-buf 'buffer 'file))
-           (display-name (if live-buf
-                             (buffer-name live-buf)
-                           (or (bonk-entry-file-path entry)
-                               (bonk-entry-name entry))))
-           (header (format "%s %s%s"
-                           (capitalize (symbol-name display-type))
-                           display-name
-                           (if (bonk-entry-start-line entry)
-                               (format " (%d-%d)"
-                                       (bonk-entry-start-line entry)
-                                       (bonk-entry-end-line entry))
-                            ""))))
+	   (src-buf  (or live-buf
+			 (and (bonk-entry-file-path entry)
+			      (find-file-noselect (bonk-entry-file-path entry) t))))
+	   ;; Create an indirect buffer without selecting it
+	   (ind-buf  (make-indirect-buffer
+		      src-buf
+		      (generate-new-buffer-name
+		       (format "%s<bonk>" (buffer-name src-buf)))
+		      t))
+	   (rng        (bonk--entry-range-lines entry))
+	   (start-line (or (car rng) 1))
+	   (end-line   (or (cdr rng)
+			   (with-current-buffer src-buf
+			     (line-number-at-pos (point-max) t))))
+	   beg end
+	   (header     (format "%s %s%s"
+			       (capitalize (symbol-name (if live-buf 'buffer 'file)))
+			       (or (when live-buf (buffer-name live-buf))
+				   (bonk-entry-file-path entry))
+			       (when (and start-line end-line)
+				 (format " (%d–%d)" start-line end-line)))))
+      ;; Narrow the indirect buffer to the entry's region
+      (with-current-buffer ind-buf
+        (widen)
+        (goto-char (point-min))
+        (forward-line (1- start-line))
+        (setq beg (point))
+        (goto-char (point-min))
+        (forward-line (1- end-line))
+        (end-of-line)
+        (setq end (point))
+        (narrow-to-region beg end))
+      ;; Insert a collapsible magit section with the full content
       (magit-insert-section (entry entry)
-        (magit-insert-heading header)
-        (insert (bonk--truncate-preview (bonk--entry-content entry)))
-        (insert "\n"))))
+			    (magit-insert-heading header)
+			    (insert "
+")
+			    (insert-buffer-substring ind-buf)
+			    (insert "
+"))
+      ;; Clean up the indirect buffer
+      (kill-buffer ind-buf)))
 
   (defun bonk--truncate-preview (str &optional lines)
     "Return STR truncated to LINES (default 10)."
@@ -538,17 +581,15 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
            (slice (seq-take parts n)))
       (string-join slice "\n")))
 
-  ;;;###autoload
+;;;###autoload
   (defun bonk-view ()
-   "Open a buffer displaying the current context in a Magit-like UI."
-   (interactive)
-   (let ((buf (get-buffer-create "*Bonk View*")))
-     (with-current-buffer buf
-       (bonk-view-mode)
-       (bonk--view-refresh))
-     (pop-to-buffer buf)))
-
-
+    "Open a buffer displaying the current context in a Magit-like UI."
+    (interactive)
+    (let ((buf (get-buffer-create "*Bonk View*")))
+      (with-current-buffer buf
+	(bonk-view-mode)
+	(bonk--view-refresh))
+      (pop-to-buffer buf)))
 
   ;;;###autoload
   (defun bonk-view-remove-entry ()
