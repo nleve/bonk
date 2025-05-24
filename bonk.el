@@ -90,6 +90,13 @@ back to :file-path + line numbers for persistence."
 ;; Live view refresh helpers
 ;; ------------------------------------------------------------------
 
+(defconst bonk--default-context-label "<default>"
+  "Display name used for the implicit (nil) Bonk context.")
+
+(defun bonk--display-context-name (name)
+  "Return NAME prettified for the UI."
+  (if (null name) bonk--default-context-label name))
+
 (defun bonk--refresh-view-buffers ()
   "If any *Bonk View* buffers are live, run `bonk--view-refresh` in them."
   (dolist (buf (buffer-list))
@@ -116,25 +123,24 @@ back to :file-path + line numbers for persistence."
     (puthash ctx-name new-plist bonk--contexts)))
 
 (defun bonk--context-names ()
-  "Return a list of existing context names as strings."
+  "Return a list of existing context names as strings, including <default>."
   (let (names)
-    (maphash (lambda (k _v) (push k names)) bonk--contexts)
+    (maphash (lambda (k _v)
+               (push (bonk--display-context-name k) names))
+             bonk--contexts)
     names))
 
 (defun bonk--read-context-name (&optional prompt default)
-  "Read a context name from the minibuffer with completion.
-PROMPT is the message shown in the minibuffer.  DEFAULT, when non-nil, is
-suggested as the default value if the user simply hits RET.
-Existing context names are provided as completion candidates, but any new
-name is accepted as well."
-  (let ((hist 'bonk--context-history))
-    (completing-read (or prompt "Context: ")
-                     (bonk--context-names)
-                     nil                ; COLLECTION is list → all allowed
-                     nil                ; PREDICATE → accept anything
-                     nil                ; INITIAL-INPUT
-                     hist               ; HISTORY
-                     default)))
+  "Read a context name, accepting the empty string as the default context."
+  (let* ((hist 'bonk--context-history)
+         (def-label (bonk--display-context-name default))
+         (raw (completing-read (or prompt "Context: ")
+                               (bonk--context-names)
+                               nil nil nil hist def-label)))
+    (cond
+     ((string-empty-p raw)            nil)  ; user just hit RET
+     ((string= raw bonk--default-context-label) nil)
+     (t raw))))
 
 
 ;;; Switching contexts --------------------------------------------------------
@@ -176,8 +182,6 @@ Handles both marker-based and static line-based entries."
 (defun bonk--toggle-entry (entry &optional context)
   "Toggle ENTRY in CONTEXT (defaults to `bonk-current-context`)."
   (let ((ctx (or context bonk-current-context)))
-    (unless ctx
-      (user-error "No current context.  Use bonk-switch-context."))
     (let* ((plist   (bonk--context-plist ctx))
            (entries (plist-get plist :entries))
            (existing (cl-find-if (lambda (e)
@@ -629,19 +633,18 @@ Bound to \\<bonk-view-mode-map>\\[bonk-view-remove-entry] and
 
   ;;; Updated view refresh to use full content sections
   (defun bonk--view-refresh ()
-    "Populate the Bonk view buffer with collapsible sections showing full content."
+    "Populate the Bonk view buffer with collapsible sections."
     (let* ((inhibit-read-only t)
 	   (ctx bonk-current-context)
-	   (plist (and ctx (bonk--context-plist ctx))))
+	   (plist (bonk--context-plist ctx)))
       (erase-buffer)
-      (if (null ctx)
-	  (insert "No active Bonk context.\n")
-	(let ((entries (plist-get plist :entries)))
-	  (magit-insert-section (root)
-	    (magit-insert-heading
-	      (format "Context %s (items: %d)" ctx (length entries)))
-	    (dolist (entry entries)
-	      (bonk--insert-entry-section entry)))))
+      (let ((entries (plist-get plist :entries)))
+	(magit-insert-section (root)
+	  (magit-insert-heading
+	    (format "Context %s (items: %d)"
+		    (bonk--display-context-name ctx) (length entries)))
+	  (dolist (entry entries)
+	    (bonk--insert-entry-section entry))))
       (goto-char (point-min))))
 
   (defun bonk--insert-entry-section (entry)
