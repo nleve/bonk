@@ -513,8 +513,57 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
       ;; Our two extra commands
       (define-key map (kbd "d")   #'bonk-view-remove-entry)
       (define-key map (kbd "DEL") #'bonk-view-remove-entry)
+      (define-key map (kbd "RET") #'bonk-view-goto-source)
       map)
     "Keymap for `bonk-view-mode'.  Inherits `magit-section-mode-map'.")
+
+  (defun bonk-view-goto-source ()
+    "From *Bonk View*, jump to the exact point in the source entry.
+
+If point is on the entry header → first char of the region.
+If point is inside the body     → same char offset inside the region."
+    (interactive)
+    (let* ((section (magit-current-section))
+           (entry   (and section
+			 (eq (oref section type) 'entry)
+			 (oref section value))))
+      (unless entry
+	(user-error "Point is not on a Bonk entry"))
+
+      ;; 1. Resolve (live) source buffer, falling back to file if needed
+      (let* ((src-buf (or (bonk--entry-live-buffer entry)
+                          (and (bonk-entry-file-path entry)
+                               (find-file-noselect (bonk-entry-file-path entry)
+                                                   t nil t))))
+             (rng      (bonk--entry-range-lines entry)))
+	(unless (buffer-live-p src-buf)
+          (user-error "Source buffer for entry is not available"))
+
+	;; 2. Char offset inside the view-section body
+	(let* ((body-beg (or (oref section content)    ; magit caches this
+                             (save-excursion          ; fallback: header-line +1
+                               (goto-char (oref section start))
+                               (forward-line) (point))))
+               (offset   (if (< (point) body-beg)      ; cursor on header?
+                             0
+                           (- (point) body-beg))))
+
+          ;; 3. Absolute position of region start in the source buffer
+          (let* ((region-start
+                  (or (and (bonk-entry-start-marker entry)
+                           (marker-position
+                            (bonk-entry-start-marker entry)))
+                      (with-current-buffer src-buf
+			(goto-char (point-min))
+			(forward-line (1- (max 1 (or (car rng) 1))))
+			(point))))
+		 (target-pos (+ region-start offset)))
+            ;; Clamp overly-large offsets (e.g. stale view)
+            (with-current-buffer src-buf
+              (setq target-pos (min target-pos (point-max))))
+            (pop-to-buffer src-buf)
+            (goto-char target-pos)
+            (recenter))))))
 
   (define-derived-mode bonk-view-mode magit-section-mode "Bonk-View"
     "Major mode for visualising a Bonk context.")
@@ -625,9 +674,8 @@ otherwise as 'Buffer'."
             ;; The (entry entry) part makes 'entry the type and the entry struct the value
             (magit-insert-section (entry entry)
               (magit-insert-heading header)
-              (insert "\n") ; Newline before content
               (insert-buffer-substring ind-buf)
-              (insert "\n")) ; Newline after content
+	      (insert "\n"))
 
             ;; Clean up the indirect buffer
             (kill-buffer ind-buf))
@@ -635,7 +683,6 @@ otherwise as 'Buffer'."
 	;; Fallback: src-buf is not a live buffer (e.g., file not found or unreadable)
 	(magit-insert-section (entry entry) ; Still provide section type/value for consistency
           (magit-insert-heading header) ; Show the header anyway
-          (insert "\n")
           (insert (format "  [Content for %s not available. File may be missing or unreadable.]"
                           (or file-path name-for-header)))
           (insert "\n")))))
