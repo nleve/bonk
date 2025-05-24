@@ -505,11 +505,20 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
 ;;; Magit-style viewer --------------------------------------------------------
 
 (when (featurep 'magit-section)
+  (defvar bonk-view-mode-map
+    (let ((map (make-sparse-keymap)))
+      ;; Inherit every binding Magit-section already defines (TAB, gj/gk, …)
+      (set-keymap-parent map magit-section-mode-map)
+
+      ;; Our two extra commands
+      (define-key map (kbd "d")   #'bonk-view-remove-entry)
+      (define-key map (kbd "DEL") #'bonk-view-remove-entry)
+      map)
+    "Keymap for `bonk-view-mode'.  Inherits `magit-section-mode-map'.")
+
   (define-derived-mode bonk-view-mode magit-section-mode "Bonk-View"
     "Major mode for visualising a Bonk context.")
 
-  (define-key bonk-view-mode-map (kbd "d")   #'bonk-view-remove-entry)
-  (define-key bonk-view-mode-map (kbd "DEL") #'bonk-view-remove-entry)
 
   ;; New function to remove entry at point in Bonk view
   (defun bonk-view-remove-entry (&optional section)
@@ -541,12 +550,13 @@ Bound to \\<bonk-view-mode-map>\\[bonk-view-remove-entry] and
 	(magit-section-forward))))
 
   (with-eval-after-load 'evil
-    ;; Put Bonk-view buffers in `motion` state, same as Magit.
+    ;; Read-only buffer, same idea as Magit:
     (evil-set-initial-state 'bonk-view-mode 'motion)
-    ;; Bind our two keys in that state.
-    (evil-define-key 'motion bonk-view-mode-map
-      (kbd "d")   #'bonk-view-remove-entry
-      (kbd "<del>") #'bonk-view-remove-entry))
+
+    ;; Tell Evil: “when you’re in this buffer, *my* map wins”.
+    ;; That keeps TAB for folding, d/DEL for deletion, etc.,
+    ;; without having to re-list any keys.
+    (evil-make-overriding-map bonk-view-mode-map 'motion))
 
   ;;; Updated view refresh to use full content sections
   (defun bonk--view-refresh ()
