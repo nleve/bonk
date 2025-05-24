@@ -47,12 +47,13 @@
 
 ;;; Customisation ------------------------------------------------------------
 
-(defcustom bonk-context-export-backend 'xml
+(defcustom bonk-context-export-backend 'plain
   "Backend used when exporting contexts.
-Must be one of the symbols `'xml` or `'markdown`.  Users can switch backends on
+Must be one of the symbols `'xml`, `'markdown` or `plain`.  Users can switch backends on
 the fly, e.g. (setq bonk-context-export-backend 'markdown)"
   :type '(choice (const :tag "XML" xml)
-                 (const :tag "Markdown" markdown)))
+                 (const :tag "Markdown" markdown)
+		 (const :tag "Plain" plain)))
 
 (defcustom bonk-export-major-mode nil
   "Major mode for *Bonk Export* buffers.
@@ -447,6 +448,18 @@ marker-based ranges as up-to-date line numbers."
          (body (bonk--entry-content entry)))
     (concat header "\n```\n" body "```\n\n")))
 
+(defun bonk-format-entry-plaintext (entry)
+  "Return a Markdown string representing ENTRY."
+  (let* ((header (format "--- %s%s\n"
+                        (bonk-entry-name entry)
+                        ;; compute up-to-date start/end
+                        (let ((rng (bonk--entry-range-lines entry)))
+                          (if (car rng)
+                              (format " (%d-%d)" (car rng) (cdr rng))
+                            ""))))
+         (body (bonk--entry-content entry)))
+    (concat header body "\n")))
+
 
 ;;; Export backends ----------------------------------------------------------
 
@@ -466,6 +479,12 @@ marker-based ranges as up-to-date line numbers."
             (mapconcat #'bonk-format-entry-markdown entries "\n")
             "\n")))
 
+(defun bonk--context-as-plain (ctx plist)
+  "Return context CTX (plist PLIST) formatted as plaintext with simple separators."
+  (let* ((entries (plist-get plist :entries)))
+    (concat (mapconcat #'bonk-format-entry-plaintext entries "\n")
+            "---\n")))
+
 
 ;;; Formatting & saving ------------------------------------------------------
 
@@ -483,6 +502,7 @@ current context offered as the default.  The backend is chosen by
     (let ((txt (pcase bonk-context-export-backend
                  ('xml       (bonk--context-as-xml ctx plist))
                  ('markdown  (bonk--context-as-markdown ctx plist))
+		 ('plain     (bonk--context-as-plain ctx plist))
                  (_ (user-error "Unknown backend %s" bonk-context-export-backend)))))
       (if (called-interactively-p 'any)
           (with-current-buffer (get-buffer-create "*Bonk Export*")
