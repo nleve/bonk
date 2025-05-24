@@ -511,6 +511,43 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
   (define-key bonk-view-mode-map (kbd "d")   #'bonk-view-remove-entry)
   (define-key bonk-view-mode-map (kbd "DEL") #'bonk-view-remove-entry)
 
+  ;; New function to remove entry at point in Bonk view
+  (defun bonk-view-remove-entry (&optional section)
+    "Remove the Bonk entry whose Magit SECTION is at point.
+
+If SECTION is non-nil (or called non-interactively), operate on
+that section instead of `magit-current-section'.  The entry is
+deleted from the current context and the view is refreshed.
+
+Bound to \\<bonk-view-mode-map>\\[bonk-view-remove-entry] and
+\\<bonk-view-mode-map>DEL in `bonk-view-mode'."
+    (interactive)
+    ;; Figure out which section we’re on.
+    (let* ((section (or section (magit-current-section)))
+           ;; We created the section with (magit-insert-section (entry entry) …)
+           ;; so its `type' is ’entry and its `value' slot *is* the
+           ;; bonk-entry struct we need.
+           (entry   (and section
+			 (eq (oref section type) 'entry)
+			 (oref section value))))
+      (unless entry
+	(user-error "Point is not on a Bonk entry section"))
+      ;; Toggle-remove the entry from the context.
+      (bonk--toggle-entry entry)
+      (message "Bonk: removed %s" (bonk--entry-description entry))
+      ;; The toggle already triggers a view refresh, but Magit may still
+      ;; have us on a dead section – move to the next live one if possible.
+      (when (magit-section-invisible-p section)
+	(magit-section-forward))))
+
+  (with-eval-after-load 'evil
+    ;; Put Bonk-view buffers in `motion` state, same as Magit.
+    (evil-set-initial-state 'bonk-view-mode 'motion)
+    ;; Bind our two keys in that state.
+    (evil-define-key 'motion bonk-view-mode-map
+      (kbd "d")   #'bonk-view-remove-entry
+      (kbd "<del>") #'bonk-view-remove-entry))
+
   ;;; Updated view refresh to use full content sections
   (defun bonk--view-refresh ()
     "Populate the Bonk view buffer with collapsible sections showing full content."
@@ -575,6 +612,7 @@ otherwise as 'Buffer'."
               (narrow-to-region beg end))
 
             ;; Insert a collapsible magit section with the full content
+            ;; The (entry entry) part makes 'entry the type and the entry struct the value
             (magit-insert-section (entry entry)
               (magit-insert-heading header)
               (insert "\n") ; Newline before content
@@ -585,7 +623,7 @@ otherwise as 'Buffer'."
             (kill-buffer ind-buf))
 
 	;; Fallback: src-buf is not a live buffer (e.g., file not found or unreadable)
-	(magit-insert-section (entry entry)
+	(magit-insert-section (entry entry) ; Still provide section type/value for consistency
           (magit-insert-heading header) ; Show the header anyway
           (insert "\n")
           (insert (format "  [Content for %s not available. File may be missing or unreadable.]"
@@ -601,21 +639,8 @@ otherwise as 'Buffer'."
 	(bonk-view-mode)
 	(bonk--view-refresh))
       (pop-to-buffer buf)))
+  )
 
-  ;;;###autoload
-  (defun bonk-view-remove-entry ()
-    "Remove the Bonk entry at point in a *Bonk View* buffer."
-    (interactive)
-    (let ((sec (magit-current-section)))
-      (unless (and sec (eq (magit-section-type sec) 'entry))
-	(user-error "Not on a Bonk entry"))
-      (let ((entry (magit-section-value sec)))
-	(when (yes-or-no-p
-               (format "Remove entry '%s' from context '%s'? "
-                       (bonk-entry-name entry) bonk-current-context))
-          (bonk--toggle-entry entry)
-          (message "Bonk: removed %s" (bonk-entry-name entry))
-          (bonk--refresh-view-buffers))))))
 
 (defun bonk--entry-description (entry)
   "Return a one-line string describing ENTRY (type, name, lines)."
