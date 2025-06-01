@@ -501,12 +501,12 @@ current context offered as the default.  The backend is chosen by
   (interactive
    (list (bonk--read-context-name "Format context: " bonk-current-context)))
   (let* ((ctx (or context bonk-current-context))
-         (plist (bonk--context-plist ctx)))
-    (unless ctx (user-error "No active context"))
+         (plist (bonk--context-plist ctx))
+         (display-ctx-name (bonk--display-context-name ctx)))
     (let ((txt (pcase bonk-context-export-backend
-                 ('xml       (bonk--context-as-xml ctx plist))
-                 ('markdown  (bonk--context-as-markdown ctx plist))
-		 ('plain     (bonk--context-as-plain ctx plist))
+                 ('xml       (bonk--context-as-xml display-ctx-name plist))
+                 ('markdown  (bonk--context-as-markdown display-ctx-name plist))
+		 ('plain     (bonk--context-as-plain display-ctx-name plist))
                  (_ (user-error "Unknown backend %s" bonk-context-export-backend)))))
       (if (called-interactively-p 'any)
           (with-current-buffer (get-buffer-create "*Bonk Export*")
