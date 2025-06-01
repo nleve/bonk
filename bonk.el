@@ -415,26 +415,56 @@ Ensures that line numbers are calculated in the context of the marker's buffer."
       ;; Fallback if entry doesn't have markers set up (e.g. 'file' type entry)
       (cons (bonk-entry-start-line entry) (bonk-entry-end-line entry)))))
 
-(defun bonk-format-entry-xml (entry &optional indent)
-  "Return XML string for ENTRY with INDENT spaces (default 2), exporting
-marker-based ranges as up-to-date line numbers."
-  (let* ((i       (make-string (or indent 2) ?\s))
-         (attrs   (list (cons 'type   (symbol-name (bonk-entry-type entry)))
-                        (cons 'name   (bonk-entry-name entry))
-                        (and (bonk-entry-file-path entry)
-                             (cons 'file (bonk-entry-file-path entry)))))
-         (rng     (bonk--entry-range-lines entry))
-         (attrs   (if (car rng)
-                      (append attrs
-                              (list (cons 'start (number-to-string (car rng)))
-                                    (cons 'end   (number-to-string (cdr rng)))))
-                    attrs))
-         (content (bonk--escape-xml (bonk--entry-content entry))))
-    (concat i
-            (format "<entry%s>\n%s\n%s</entry>"
-                    (bonk--format-attrs attrs)
-                    content
-                    i))))
+(defun bonk--entry-display-type (entry)
+  "Determine the appropriate type symbol for displaying ENTRY.
+This can differ from the internal `bonk-entry-type` for a clearer external representation.
+For example, a 'buffer' entry backed by a file `bonk-entry-file-path` is displayed as 'file'."
+  (pcase (bonk-entry-type entry)
+    ('buffer
+     (if (bonk-entry-file-path entry)
+         'file ; A buffer backed by a file is presented as a file
+       'buffer)) ; A buffer not backed by a file (e.g., *scratch*) is a buffer
+    (type type))) ; Default case: internal type is fine for display (e.g., 'file, 'webpage, etc)
+
+(defun bonk-format-entry-xml (entry index &optional base-indent-level)
+  "Return XML string for ENTRY as a <document> tag, with INDEX and optional BASE-INDENT-LEVEL.
+Marker-based ranges are exported as up-to-date line numbers.
+BASE-INDENT-LEVEL specifies the indentation for the 'parent' tags (like <documents>).
+The <document> tag itself will be indented by +2, its children (+4), and content (+6)."
+  (let* ((indent             (or base-indent-level 0))
+         (i-document         (make-string (+ indent 2) ?\s))   ; Indent for <document> tag
+         (i-inner            (make-string (+ indent 4) ?\s))   ; Indent for <source>, <document_content>
+         (rng                (bonk--entry-range-lines entry))
+         (source-text        (or (bonk-entry-file-path entry)
+                                 (bonk-entry-name entry)))
+         ;; Use the new display function for the 'type' attribute
+         (source-attrs       (list (cons 'type (symbol-name (bonk--entry-display-type entry)))))
+         (source-attrs       (if (car rng)
+                                 (append source-attrs
+                                         (list (cons 'startLine (number-to-string (car rng)))
+                                               (cons 'endLine   (number-to-string (cdr rng)))))
+                               source-attrs))
+         (entry-raw-content  (bonk--entry-content entry))) ; Get raw content, no escaping here
+    (concat
+     ;; <document> tag
+     i-document (format "<document index=\"%s\">\n" (number-to-string index))
+
+     ;; <source> tag - content is now raw
+     i-inner (format "<source%s>%s</source>\n"
+                     (bonk--format-attrs source-attrs) ; attributes still escaped
+                     source-text)
+
+     ;; <document_content> tag - content is now raw
+     i-inner "<document_content>"
+     (if (string-empty-p entry-raw-content)
+	 ""
+       (concat "\n" ; Start content on a new line
+	       entry-raw-content))
+     "\n" ; Newline before closing tag
+     i-inner "</document_content>\n"
+
+     ;; Closing </document> tag
+     i-document "</document>")))
 
 
 ;;; Markdown helper ----------------------------------------------------------
@@ -442,7 +472,8 @@ marker-based ranges as up-to-date line numbers."
 (defun bonk-format-entry-markdown (entry)
   "Return a Markdown string representing ENTRY."
   (let* ((header (format "### %s %s%s\n"
-                        (capitalize (symbol-name (bonk-entry-type entry)))
+                        ;; Use the new display function for the type in the header
+                        (capitalize (symbol-name (bonk--entry-display-type entry)))
                         (bonk-entry-name entry)
                         ;; compute up-to-date start/end
                         (let ((rng (bonk--entry-range-lines entry)))
@@ -468,12 +499,19 @@ marker-based ranges as up-to-date line numbers."
 ;;; Export backends ----------------------------------------------------------
 
 (defun bonk--context-as-xml (ctx plist)
-  "Return context CTX (plist PLIST) as pseudo-XML string."
-  (let* ((entries (plist-get plist :entries)))
-    (concat (format "<context name=\"%s\" created=\"%s\" updated=\"%s\">\n"
-                    ctx (plist-get plist :created) (plist-get plist :updated))
-            (mapconcat (lambda (e) (bonk-format-entry-xml e 2)) entries "\n")
-            "\n</context>\n")))
+  "Return context CTX (plist PLIST) as XML string with <documents> and <document> tags."
+  (let* ((entries (plist-get plist :entries))
+         (doc-index 0)
+         (document-strings (list)))
+    (dolist (entry entries)
+      (cl-incf doc-index)
+      ;; Pass 0 as the base-indent-level, so <document> tags start at col 2
+      (push (bonk-format-entry-xml entry doc-index 0) document-strings))
+    (concat "<documents>"
+            (if document-strings "\n" "") ; Only add newline if there are documents
+            (mapconcat 'identity (nreverse document-strings) "\n")
+            (if document-strings "\n" "") ; Only add newline if there are documents
+            "</documents>")))
 
 (defun bonk--context-as-markdown (ctx plist)
   "Return context CTX (plist PLIST) formatted as Markdown."
@@ -652,12 +690,13 @@ Bound to \\<bonk-view-mode-map>\\[bonk-view-remove-entry] and
 If ENTRY has a file-path, it's labelled as 'File' in the view,
 otherwise as 'Buffer'."
     (let* ((file-path (bonk-entry-file-path entry))
-	   (display-type-str (if file-path "File" "Buffer"))
+	   ;; Use the new display function for the type in the header
+	   (display-type-str (symbol-name (bonk--entry-display-type entry)))
 	   (name-for-header (bonk-entry-name entry)) ; Buffer name for 'buffer' type, full path for 'file' type
 	   (rng (bonk--entry-range-lines entry)) ; Get (start . end) lines, using markers if available
 
            (header (format "%s %s%s"
-                           (capitalize display-type-str)
+                           (capitalize display-type-str) ; Use the new display function
                            name-for-header
                            (if (car rng) ; If specific start line is present in rng
                                (format " (%d–%d)" (car rng) (cdr rng))
@@ -724,7 +763,7 @@ otherwise as 'Buffer'."
 
 (defun bonk--entry-description (entry)
   "Return a one-line string describing ENTRY (type, name, lines)."
-  (let* ((type     (capitalize (symbol-name (bonk-entry-type entry))))
+  (let* ((type     (capitalize (symbol-name (bonk--entry-display-type entry)))) ; Use new display type
 	 (name     (bonk-entry-name entry))
 	 (rng      (bonk--entry-range-lines entry))
 	 (range-str (if (car rng)
