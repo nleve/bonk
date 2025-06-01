@@ -950,6 +950,31 @@ attach the live-update hook so unsaved edits propagate to Bonk view."
 
 (add-hook 'find-file-hook #'bonk--after-find-refresh)
 
+;; Define a keymap for bonk commands
+(defvar bonk-map (make-sparse-keymap)
+  "Keymap for bonk commands.")
+
+;; Set the prefix key
+(define-prefix-command 'bonk-map nil "Bonk")
+
+(defcustom bonk-prefix-key "C-x c"
+  "Prefix key for bonk commands."
+  :type 'string
+  :group 'bonk)
+
+(global-set-key (kbd bonk-prefix-key) 'bonk-map)
+
+;; Define keybindings
+(define-key bonk-map (kbd "s") 'bonk-switch-context)
+(define-key bonk-map (kbd "f") 'bonk-add-file)
+(define-key bonk-map (kbd "b") 'bonk-add-buffer)
+(define-key bonk-map (kbd "r") 'bonk-add-region)
+(define-key bonk-map (kbd "v") 'bonk-view)
+(define-key bonk-map (kbd "e") 'bonk-format-context)
+(define-key bonk-map (kbd "w") 'bonk-save-context)
+(define-key bonk-map (kbd "k") 'bonk-remove-entry)
+(define-key bonk-map (kbd "D") 'bonk-delete-context)
+
 
 (provide 'bonk)
 ;;; bonk.el ends here
