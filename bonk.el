@@ -989,6 +989,22 @@ attach the live-update hook so unsaved edits propagate to Bonk view."
 
 (add-hook 'find-file-hook #'bonk--after-find-refresh)
 
+(defun bonk-context-inserter ()
+  "Inserts a predefined custom context at the beginning of the prompt.
+This function is intended for `gptel-prompt-filter-hook'."
+  (save-excursion
+    ;; Go to the beginning of the temporary buffer containing the prompt.
+    (goto-char (point-min))
+
+    ;; Insert your custom context.
+    ;; You can make this dynamic, read from a file, etc.
+    (insert (bonk-format-context))
+
+    ;; Return point to the end of the original prompt (or wherever it was)
+    ;; This step is often implied when using `save-excursion`, but good to note.
+    (goto-char (point-max))))
+
+
 ;; Define a keymap for bonk commands
 (defvar bonk-map (make-sparse-keymap)
   "Keymap for bonk commands.")
