@@ -593,7 +593,6 @@ The <document> tag itself will be indented by +2, its children (+4), and content
          ""
        (concat "\n" ; Start content on a new line
 	       entry-raw-content))
-     "\n" ; Newline before closing tag
      i-inner "</document_content>\n"
 
      ;; Closing </document> tag
@@ -1141,7 +1140,6 @@ This function is intended for `gptel-prompt-filter-hook'."
 (define-key bonk-map (kbd "w") #'bonk-save-context)   ; Write to file
 (define-key bonk-map (kbd "k") #'bonk-remove-entry)   ; "Kill" entry
 (define-key bonk-map (kbd "D") #'bonk-delete-context) ; Delete context
-(define-key bonk-map (kbd "i") #'bonk-context-inserter) ; Insert context content
 
 
 (provide 'bonk)
