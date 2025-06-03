@@ -752,12 +752,29 @@ If point is inside the body     → same char offset inside the region."
                       (goto-char (point-min))
                       (forward-line (1- (max 1 (or (car rng) 1))))
                       (point)))))
+               (region-end-in-src
+                (with-current-buffer src-buf
+                  (if (bonk-entry-end-marker entry)
+                      (marker-position (bonk-entry-end-marker entry))
+                    ;; If no end marker, use static line number or end of buffer
+                    (let ((end-line (cdr rng)))
+                      (if end-line
+                          (save-excursion
+                            (goto-char (point-min))
+                            ;; Ensure end-line doesn't exceed actual buffer lines
+                            (when (> end-line (count-lines (point-min) (point-max)))
+                              (setq end-line (count-lines (point-min) (point-max))))
+                            (forward-line (1- (max 1 end-line)))
+                            (line-end-position)) ; Get end of the specified end line
+                        (point-max))))))        ; If end-line is nil, encompass till end of buffer
                (target-pos (+ region-start-in-src offset)))
 
           (with-current-buffer src-buf
             (setq target-pos (min target-pos (point-max))))
           (pop-to-buffer src-buf)
           (goto-char target-pos)
+          (when (fboundp 'pulse-momentary-highlight-region) ; Ensure pulse is available
+            (pulse-momentary-highlight-region region-start-in-src region-end-in-src))
           (recenter)))))
 
   (define-derived-mode bonk-view-mode magit-section-mode "Bonk-View"
