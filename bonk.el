@@ -48,7 +48,7 @@
 
 ;;; Customisation ------------------------------------------------------------
 
-(defcustom bonk-context-export-backend 'plain
+(defcustom bonk-context-export-backend 'xml
   "Backend used when exporting contexts.
 Must be one of the symbols `'xml`, `'markdown` or `plain`.  Users can switch backends on
 the fly, e.g. (setq bonk-context-export-backend 'markdown)"
