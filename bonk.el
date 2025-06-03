@@ -174,6 +174,39 @@ back to :file-path + line numbers for persistence."
     (unless (file-directory-p dir)
       (make-directory dir t))))
 
+
+(defun bonk--ensure-entry-markers (entry target-buffer)
+  "Ensure live markers for ENTRY in TARGET-BUFFER if a live buffer exists.
+  If ENTRY has markers, it validates them. If not, it creates them from
+  the entry's start-line and end-line in TARGET-BUFFER.
+  This applies only to 'buffer' entries which represent a specific range
+  (i.e., `start-line` and `end-line` are non-nil).
+  Returns t if markers were created/updated, nil otherwise."
+  (let ((markers-updated nil))
+    ;; Only attempt to create/validate markers for 'buffer' type entries
+    ;; that specify a line range (not whole buffers).
+    (when (and (bonk-entry-start-line entry)  ; Must have a start line
+               (bonk-entry-end-line entry)    ; Must have an end line
+               (buffer-live-p target-buffer))
+      (with-current-buffer target-buffer
+        (let* ((start-m (bonk-entry-start-marker entry))
+               (end-m (bonk-entry-end-marker entry))
+               (line1 (bonk-entry-start-line entry))
+               (line2 (bonk-entry-end-line entry))
+               (pos1 (save-excursion (goto-char (point-min)) (forward-line (1- line1)) (point)))
+               (pos2 (save-excursion (goto-char (point-min)) (forward-line (1- line2)) (line-end-position))))
+
+          ;; If markers are not set or are not pointing to the current buffer, recreate them.
+          (unless (and start-m (marker-buffer start-m) (eq (marker-buffer start-m) target-buffer)
+                       end-m (marker-buffer end-m) (eq (marker-buffer end-m) target-buffer))
+            (setf (bonk-entry-start-marker entry) (copy-marker pos1 t)) ; t: inserts before
+            (setf (bonk-entry-end-marker entry)   (copy-marker pos2 nil)) ; nil: inserts after
+            ;; Also update the static line numbers to reflect current marker positions
+            (setf (bonk-entry-start-line entry) line1)
+            (setf (bonk-entry-end-line entry)   line2)
+            (setq markers-updated t))))
+    markers-updated)))
+
 (defun bonk--prepare-entry-for-saving (entry)
   "Return a new `bonk-entry` struct suitable for saving (markers set to nil)."
   (bonk-entry-create
@@ -253,6 +286,7 @@ back to :file-path + line numbers for persistence."
                                      ((eq (bonk-entry-type entry) 'buffer)
                                       (get-buffer (bonk-entry-name entry))))))
                                (when (buffer-live-p buf-to-hook)
+                                 (bonk--ensure-entry-markers entry buf-to-hook) ; Re-establish/update markers if buffer is live
                                  (with-current-buffer buf-to-hook
                                    (bonk--maybe-add-buffer-hook (buffer-name buf-to-hook)))))))
                          (puthash ctx-name
@@ -385,7 +419,7 @@ Stores it as markers so edits elsewhere don’t shift our region."
          (em  (copy-marker end nil)) ; stays after insert
          ;; capture the static line numbers right away
          (ln1 (line-number-at-pos sm t))
-         (ln2 (line-number-at-pos em t)))
+         (ln2 (line-number-at-pos (max (point-min) (1- em)) t)))
     (bonk--toggle-entry
      (bonk-entry-create
       :type         'buffer
@@ -1115,9 +1149,21 @@ in any context."
 
 (defun bonk--after-find-refresh ()
   "Find-file-hook: if visited file is in a context, ensure hooks and schedule refresh."
-  (when (and buffer-file-name
-             (bonk--file-in-any-context-p buffer-file-name))
-    (bonk--maybe-add-buffer-hook (current-buffer)) ; Add hooks to the newly visited buffer
+  (when buffer-file-name
+    (let ((file-path (expand-file-name buffer-file-name))
+          (current-buf (current-buffer)))
+      (maphash
+       (lambda (_ctx plist)
+         (dolist (entry (plist-get plist :entries))
+           (when (or (and (eq (bonk-entry-type entry) 'file)
+                           (equal (bonk-entry-name entry) file-path)) ; 'file' entries store abs path as name
+                     (and (eq (bonk-entry-type entry) 'buffer)
+                          (equal (bonk-entry-file-path entry) file-path)
+                          (equal (bonk-entry-name entry) (buffer-name current-buf))))
+             ;; Found a matching entry that corresponds to the newly visited file
+             (bonk--ensure-entry-markers entry current-buf) ; Re-create/validate markers in *this* buffer
+             (bonk--maybe-add-buffer-hook (buffer-name current-buf))))) ; Ensure buffer hooks are active
+       bonk--contexts))
     (bonk--schedule-refresh)))
 
 (add-hook 'find-file-hook #'bonk--after-find-refresh)
