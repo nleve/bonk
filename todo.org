@@ -1,0 +1,88 @@
+* DONE context persistence
+* DONE GPTEL integration (make gptel call bonk-format-context?)
+* DONE quick remove a context entry
+* DONE Pulse region when visiting it from bonk-view
+* TODO better indicators in buffer (fringe?)
+* TODO better indicators in dired
+* TODO better indicators in ibuffer
+* TODO perhaps get rid of top-level magit section
+**   **Implementation Idea:**
+    *   Instead of `(magit-insert-section (root) ...)` with a heading, simply `(magit-insert-heading ...)` for the context name and then directly iterate and insert the entry sections. This would make the entire buffer the "root" implicitly.
+    *   If a top-level section is desired for structural reasons, make its heading more minimal or directly reflect the context name without an explicit "Context X (items: N)" heading.
+* TODO concatenate contexts on the fly
+**   **Implementation Idea:**
+    *   Create a new interactive function (e.g., `bonk-format-multiple-contexts`) that prompts the user to select multiple contexts (using `completing-read-multiple`).
+    *   It would then aggregate all entries from the selected contexts into a temporary list, deduplicate if necessary, and then format them using the chosen backend (`bonk--context-as-xml`, etc.), potentially adding headers to denote which entry came from which original context.
+* TODO add entire dir (docs, etc)
+just use dired? hmm. maybe not. but we should lean on existing functionality
+* TODO tokenization integration
+* TODO quick selection of output format (different models may prefer different format)
+bonk-select-export-backend using completing-read. map to a keybinding in bonk-map
+* TODO auto-collapse sections (custom variable)
+- Add a `defcustom bonk-view-initial-collapse-state` (e.g., `'all`, `'none`, `'current-context-entries`, `'recently-added`).
+- Use `magit-section-set-visibility` in `bonk--view-refresh` based on this custom variable.
+* TODO bonk-kill to perform (kill-new bonk-format-context)
+* TODO bonk-kill-multi (kill-new bonk-format-contexts)
+* TODO Reorder context order within bonk-view using alt+j / alt+k
+**   **What to do:** Allow users to visually reorder entries within the `*Bonk View*` buffer, and persist this order.
+**   **Implementation Idea:**
+    *   This is a significant change. `bonk--contexts` currently stores entries as a simple list. To maintain order, this list must be directly manipulated.
+    *   Implement functions `bonk-view-move-entry-up` and `bonk-view-move-entry-down`. These functions would:
+        1.  Identify the `bonk-entry` struct at point in `*Bonk View*`.
+        2.  Find its index in the `plist-get`'d list of entries for the current context.
+        3.  Rearrange the list (swapping positions).
+        4.  Update the `bonk--contexts` hash table with the modified list.
+        5.  Call `bonk--save-state` and `bonk--refresh-view-buffers`.
+    *   Bind these to `M-j` and `M-k` in `bonk-view-mode-map`.
+* TODO rename context
+    *   Implement `bonk-rename-context`. It would:
+        1.  Prompt for the old context name (with completion).
+        2.  Prompt for the new context name.
+        3.  If the old name exists and the new name doesn't, copy the `plist` from the old key to the new key in `bonk--contexts`.
+        4.  Remove the old key from `bonk--contexts`.
+        5.  If the `bonk-current-context` matches the old name, update it to the new name.
+        6.  Call `bonk--save-state` and `bonk--refresh-view-buffers`.
+* TODO add file as hidden buffer... make sure to cleanup delete though
+* TODO Change formatter based on the model! Tie formatter to model.
+* TODO Quick context supplementation functions. "Add file tree" etc.
+**   **Implementation Ideas:**
+    *   `bonk-add-dired-marked-files`: Add all files marked in the current Dired buffer.
+    *   `bonk-add-ibuffer-marked-buffers`: Add all buffers marked in the current Ibuffer buffer.
+* TODO project-specific context
+* TODO if lines get totally deleted, remove the entry from context
+- In `bonk--idle-update-and-refresh` (which updates line numbers for marker-based entries), check the validity of marker positions. If `(marker-position start-marker)` becomes `nil` or `(marker-position start-marker)` is no longer less than `(marker-position end-marker)`, or if the buffer is killed, consider the entry invalid.
+- Implement an additional filter during `bonk--context-plist` retrieval or during `bonk--save-state` that automatically prunes entries whose markers are invalid or whose underlying files/buffers are non-existent *and* for which no static line numbers can fall back to.
+* TODO merge overlapping context entries
+- Modify `bonk--toggle-entry` (specifically the "add" path). Before adding a new entry, iterate through existing entries from the same source (`file-path` or `buffer-name`).
+- If an overlap is detected, instead of adding a new entry, modify the existing entry's `start-line`/`end-line` (and potentially markers) to encompass the combined range. Then remove the original entry and add the new merged one.
+* TODO simple character counts
+- Add a `char-count` property to `bonk-entry-create`.
+- Update this count whenever content is retrieved or updated.
+- Display character counts in the `*Bonk View*` (next to line counts) and in the formatted output.
+* DONE make sure marker rehydration works properly from persistence
+maybe this is actually "make sure files with lines are upgraded to buffers with regions when opened"?
+* TODO quick actions at the context level
+- `bonk-clear-context`: Remove all entries from the current context.
+- `bonk-duplicate-context`: Create a new context with all the same entries as an existing one.
+- `bonk-export-all-contexts-to-directory`: Save each context as a separate file in a specified directory.
+* TODO figure out why fontification doesn't immediately apply in magit-section until the underlying buffer is changed sometimes
+- Investigate the timing of `font-lock-mode` and content insertion in `bonk--view-refresh` and `bonk--insert-entry-section`.
+- Try explicitly calling `(font-lock-flush)` and then `(font-lock-ensure)` after all content is inserted and before `(goto-char (point-min))` in `bonk--view-refresh`.
+- Ensure that the `bonk-view-mode` is properly set *after* the content based on `bonk-context-export-backend` is inserted, as `magit-section-mode` will likely influence the underlying modes.
+* TODO Advanced Context Management UI
+**What to do:** Create a dedicated `magit-section` buffer for managing *all* contexts, offering a better overview and more efficient management than `completing-read`.
+** **Implementation Idea:**
+    *   This is a major feature, akin to `magit-status`.
+    *   Create `bonk-list-contexts` which opens a new buffer (e.g., `*Bonk Contexts*`).
+    *   This buffer would use `magit-section` to display each context as a top-level section.
+    *   Each context section would show metadata (`created`, `updated`, `entry count`) and could be collapsible to show its entries (similar to `*Bonk View*`).
+    *   Keybindings in this buffer would allow:
+        *   `s` (Switch): Switch to the context at point.
+        *   `D` (Delete): Delete the context at point.
+        *   `R` (Rename): Rename the context at point.
+        *   `v` (View): Open `*Bonk View*` for the context at point.
+        *   `e` (Export): Export the context at point.
+        *   `+` (New): Create a new context.
+    *   This central UI would greatly improve context management.
+* TODO bonk-add-region adds one too many lines. the last line should not be included.
+* TODO create a bonk-switch-context-local (switches context but only buffer-local)
