@@ -84,8 +84,8 @@ back to :file-path + line numbers for persistence."
   type
   name
   file-path      ;; absolute file name or nil
-  start-line     ;; last-known static start (integer)
-  end-line       ;; last-known static end   (integer)
+  persisted-start-line     ;; last-known static start (integer)
+  persisted-end-line       ;; last-known static end   (integer)
   start-marker   ;; dynamic marker for region start
   end-marker)    ;; dynamic marker for region end
 
@@ -185,14 +185,14 @@ back to :file-path + line numbers for persistence."
   (let ((markers-updated nil))
     ;; Only attempt to create/validate markers for 'buffer' type entries
     ;; that specify a line range (not whole buffers).
-    (when (and (bonk-entry-start-line entry)  ; Must have a start line
-               (bonk-entry-end-line entry)    ; Must have an end line
+    (when (and (bonk-entry-persisted-start-line entry)  ; Must have a start line
+               (bonk-entry-persisted-end-line entry)    ; Must have an end line
                (buffer-live-p target-buffer))
       (with-current-buffer target-buffer
         (let* ((start-m (bonk-entry-start-marker entry))
                (end-m (bonk-entry-end-marker entry))
-               (line1 (bonk-entry-start-line entry))
-               (line2 (bonk-entry-end-line entry))
+               (line1 (bonk-entry-persisted-start-line entry))
+               (line2 (bonk-entry-persisted-end-line entry))
                (pos1 (save-excursion (goto-char (point-min)) (forward-line (1- line1)) (point)))
                (pos2 (save-excursion (goto-char (point-min)) (forward-line (1- line2)) (line-end-position))))
 
@@ -202,8 +202,8 @@ back to :file-path + line numbers for persistence."
             (setf (bonk-entry-start-marker entry) (copy-marker pos1 t)) ; t: inserts before
             (setf (bonk-entry-end-marker entry)   (copy-marker pos2 nil)) ; nil: inserts after
             ;; Also update the static line numbers to reflect current marker positions
-            (setf (bonk-entry-start-line entry) line1)
-            (setf (bonk-entry-end-line entry)   line2)
+            (setf (bonk-entry-persisted-start-line entry) line1)
+            (setf (bonk-entry-persisted-end-line entry)   line2)
             (setq markers-updated t))))
     markers-updated)))
 
@@ -213,8 +213,8 @@ back to :file-path + line numbers for persistence."
    :type (bonk-entry-type entry)
    :name (bonk-entry-name entry)
    :file-path (bonk-entry-file-path entry)
-   :start-line (bonk-entry-start-line entry)
-   :end-line (bonk-entry-end-line entry)
+   :persisted-start-line (bonk-entry-persisted-start-line entry)
+   :persisted-end-line (bonk-entry-persisted-end-line entry)
    :start-marker nil  ; Markers are not persisted
    :end-marker nil))
 
@@ -339,8 +339,8 @@ Handles both marker-based and static line-based entries."
                  (marker-position (bonk-entry-end-marker b)))))
         ;; fallback: compare static start/end line & file-path
         (t
-         (and (equal (bonk-entry-start-line a) (bonk-entry-start-line b))
-              (equal (bonk-entry-end-line   a) (bonk-entry-end-line   b))
+         (and (equal (bonk-entry-persisted-start-line a) (bonk-entry-persisted-start-line b))
+              (equal (bonk-entry-persisted-end-line   a) (bonk-entry-persisted-end-line   b))
               (equal (bonk-entry-file-path  a) (bonk-entry-file-path b)))))))
 
 (defun bonk--toggle-entry (entry &optional context)
@@ -397,11 +397,11 @@ Handles both marker-based and static line-based entries."
            (bonk-entry-create :type 'buffer
                               :name (buffer-name buf)
                               :file-path abs-file
-                              :start-line start :end-line end)
+                              :persisted-start-line start :persisted-end-line end)
          (bonk-entry-create :type 'file
                             :name abs-file ; store abs path as name for file type
                             :file-path abs-file
-                            :start-line start :end-line end))))))
+                            :persisted-start-line start :persisted-end-line end))))))
 
 ;;;###autoload
 (defun bonk-add-buffer (&optional buffer arg)
@@ -414,7 +414,7 @@ Handles both marker-based and static line-based entries."
       (bonk--toggle-entry (bonk-entry-create :type 'buffer
                                              :name (buffer-name buf)
                                              :file-path (buffer-file-name buf) ; Can be nil
-                                             :start-line start :end-line end)))))
+                                             :persisted-start-line start :persisted-end-line end)))))
 
 ;;;###autoload
 (defun bonk-add-region (beg end)
@@ -432,8 +432,8 @@ Stores it as markers so edits elsewhere don’t shift our region."
       :type         'buffer
       :name         (buffer-name buf)
       :file-path    (buffer-file-name buf)
-      :start-line   ln1
-      :end-line     ln2
+      :persisted-start-line   ln1
+      :persisted-end-line     ln2
       :start-marker sm
       :end-marker   em))))
 
@@ -518,19 +518,19 @@ or nil if no such buffer exists."
              (marker-position (bonk-entry-start-marker entry))
              (marker-position (bonk-entry-end-marker   entry)))
           ;; else fall back on static line numbers
-          (bonk--slice-lines (bonk-entry-start-line entry)
-                             (bonk-entry-end-line entry)))))
+          (bonk--slice-lines (bonk-entry-persisted-start-line entry)
+                             (bonk-entry-persisted-end-line entry)))))
      ;; If it's a file entry or a buffer entry with a file path, and file is readable
      ((and entry-file-path (file-readable-p entry-file-path))
       (bonk--with-file (entry-file-path)
-        (bonk--slice-lines (bonk-entry-start-line entry)
-                           (bonk-entry-end-line entry))))
+        (bonk--slice-lines (bonk-entry-persisted-start-line entry)
+                           (bonk-entry-persisted-end-line entry))))
      ;; Fallback for 'file' type entries where bonk-entry-name is the path
      ((and (eq (bonk-entry-type entry) 'file)
            (file-readable-p (bonk-entry-name entry)))
       (bonk--with-file ((bonk-entry-name entry))
-        (bonk--slice-lines (bonk-entry-start-line entry)
-                           (bonk-entry-end-line entry))))
+        (bonk--slice-lines (bonk-entry-persisted-start-line entry)
+                           (bonk-entry-persisted-end-line entry))))
      (t
       (error "Bonk: Cannot get content for entry %s" (bonk-entry-name entry))))))
 
@@ -585,9 +585,9 @@ Ensures that line numbers are calculated in the context of the marker's buffer."
                 (cons (line-number-at-pos start-pos t)
                       (line-number-at-pos end-pos t)))
             ;; Fallback to static lines if markers are problematic (e.g., buffer killed, inconsistent)
-            (cons (bonk-entry-start-line entry) (bonk-entry-end-line entry))))
+            (cons (bonk-entry-persisted-start-line entry) (bonk-entry-persisted-end-line entry))))
       ;; Fallback if entry doesn't have markers set up (e.g. 'file' type entry)
-      (cons (bonk-entry-start-line entry) (bonk-entry-end-line entry)))))
+      (cons (bonk-entry-persisted-start-line entry) (bonk-entry-persisted-end-line entry)))))
 
 (defun bonk--entry-display-type (entry)
   "Determine the appropriate type symbol for displaying ENTRY.
@@ -1022,10 +1022,10 @@ Prompts for confirmation, then removes the context and saves state."
                     (ln1 (when sm-pos (line-number-at-pos sm-pos t)))
                     (ln2 (when em-pos (line-number-at-pos em-pos t))))
                (when (and ln1 ln2
-                          (or (not (equal (bonk-entry-start-line entry) ln1))
-                              (not (equal (bonk-entry-end-line entry) ln2))))
-                 (setf (bonk-entry-start-line entry) ln1
-                       (bonk-entry-end-line   entry) ln2)
+                          (or (not (equal (bonk-entry-persisted-start-line entry) ln1))
+                              (not (equal (bonk-entry-persisted-end-line entry) ln2))))
+                 (setf (bonk-entry-persisted-start-line entry) ln1
+                       (bonk-entry-persisted-end-line   entry) ln2)
                  (bonk--update-ts ctx-name) ; Update timestamp
                  (setq changed-anything t)))))))
      bonk--contexts)
@@ -1049,8 +1049,8 @@ Prompts for confirmation, then removes the context and saves state."
                   (ln1 (when sm (with-current-buffer (marker-buffer (bonk-entry-start-marker entry)) (line-number-at-pos sm t))))
                   (ln2 (when em (with-current-buffer (marker-buffer (bonk-entry-end-marker entry)) (line-number-at-pos em t)))))
              (when (and ln1 ln2) ; If lines could be determined
-               (setf (bonk-entry-start-line entry) ln1
-                     (bonk-entry-end-line   entry) ln2))
+               (setf (bonk-entry-persisted-start-line entry) ln1
+                     (bonk-entry-persisted-end-line   entry) ln2))
              ;; Regardless, clear markers as buffer is being killed
              (setf (bonk-entry-start-marker entry) nil
                    (bonk-entry-end-marker   entry) nil)
