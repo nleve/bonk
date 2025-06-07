@@ -345,27 +345,34 @@ Handles both marker-based and static line-based entries."
 
 (defun bonk--toggle-entry (entry &optional context)
   "Toggle ENTRY in CONTEXT (defaults to `bonk-current-context`)."
-  (let ((ctx (or context bonk-current-context)))
-    (let* ((plist   (bonk--context-plist ctx)) ; Ensures context exists
-           (entries (plist-get plist :entries))
-           (existing (cl-find-if (lambda (e)
-                                   (bonk--equal-entry-p e entry))
-                                 entries))
-           ;; build the new list of entries
-           (new-entries
-            (if existing
-                (progn
-                  (message "Bonk: removed %s" (bonk--entry-description entry existing))
-                  (delq existing entries))
-              (progn
-                (message "Bonk: added %s" (bonk--entry-description entry))
-                (cons entry entries))))
-           ;; inject back into the stored plist
-           (updated-plist (plist-put plist :entries new-entries)))
-      (puthash ctx updated-plist bonk--contexts)
-      (bonk--update-ts ctx)
-      (bonk--refresh-view-buffers)
-      (bonk--save-state)))) ; Persist changes
+  (let* ((ctx (or context bonk-current-context))
+         (plist (bonk--context-plist ctx))
+         (entries (plist-get plist :entries))
+         (existing (cl-find-if (lambda (e) (bonk--equal-entry-p e entry)) entries))
+         (is-buffer-entry (eq (bonk-entry-type entry) 'buffer))
+         (buf-name (and is-buffer-entry (bonk-entry-name entry)))
+         new-entries)
+
+    (setq new-entries
+          (if existing
+              (progn ;
+                (message "Bonk: removed %s" (bonk--entry-description entry existing))
+                (delq existing entries))
+            (progn
+              (message "Bonk: added %s" (bonk--entry-description entry))
+              (cons entry entries))))
+
+    (puthash ctx (plist-put plist :entries new-entries) bonk--contexts)
+    (bonk--update-ts ctx)
+    (bonk--refresh-view-buffers)
+
+    ;; Direct hook management:
+    (when is-buffer-entry
+      (if (and existing (not (cl-find-if (lambda (e) (bonk--equal-entry-p e entry)) new-entries))) ; If it was removed
+          (bonk--maybe-remove-buffer-hook buf-name)
+        (bonk--maybe-add-buffer-hook buf-name)))
+
+    (bonk--save-state)))
 
 (defun bonk--range-or-nil (arg prompt1 prompt2)
   "If ARG is non-nil read PROMPT1 & PROMPT2 numbers; return (start end)."
@@ -1129,23 +1136,6 @@ in any context."
 (defun bonk--buffer-change-refresh (_beg _end _len)
   "Buffer-local `after-change-functions' handler. Schedules a view refresh."
   (bonk--schedule-refresh))
-
-(advice-add
- #'bonk--toggle-entry :around
- (lambda (orig-fn entry &optional context)
-   "Advice for bonk--toggle-entry to manage buffer hooks."
-   (let* ((ctx-key (or context bonk-current-context))
-          (plist (bonk--context-plist ctx-key))
-          (entries (plist-get plist :entries))
-          (is-adding (not (cl-find-if (lambda (e) (bonk--equal-entry-p e entry)) entries))))
-     (prog1 (funcall orig-fn entry context) ; Call original, which now also saves state
-       ;; Manage hooks based on whether we added or removed
-       (when (eq (bonk-entry-type entry) 'buffer)
-         (let ((buf-name (bonk-entry-name entry)))
-           (if is-adding
-               (bonk--maybe-add-buffer-hook buf-name)
-             ;; Removing: check if buffer is still in *any* context before removing hooks
-             (bonk--maybe-remove-buffer-hook buf-name))))))))
 
 (defun bonk--after-find-refresh ()
   "Find-file-hook: if visited file is in a context, ensure hooks and schedule refresh."
