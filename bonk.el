@@ -605,39 +605,45 @@ Example: a 'buffer' entry backed by `bonk-entry-file-path` is considered 'file'.
 Marker-based ranges are exported as up-to-date line numbers.
 BASE-INDENT-LEVEL specifies the indentation for the 'parent' tags (like <documents>).
 The <document> tag itself will be indented by +2, its children (+4), and content (+6)."
-  (let* ((indent             (or base-indent-level 0))
-         (i-document         (make-string (+ indent 2) ?\s))   ; Indent for <document> tag
-         (i-inner            (make-string (+ indent 4) ?\s))   ; Indent for <source>, <document_content>
-         (rng                (bonk--entry-range-lines entry))
-         (source-text        (or (bonk-entry-file-path entry)
-                                 (bonk-entry-name entry)))
-         (display-type-sym   (bonk--entry-display-type entry))
-         (source-attrs       (list (cons 'type (symbol-name display-type-sym))))
-         (source-attrs       (if (car rng)
-                                 (append source-attrs
-                                         (list (cons 'startLine (number-to-string (car rng)))
-                                               (cons 'endLine   (number-to-string (cdr rng)))))
-                               source-attrs))
-         (entry-raw-content  (bonk--entry-content entry))) ; Get raw content, no escaping here
+  (let* ((indent (or base-indent-level 0))
+         (i-document (make-string (+ indent 2) ?\s))
+         (rng (bonk--entry-range-lines entry))
+         (entry-raw-content (bonk--entry-content entry))
+         (display-type-sym (bonk--entry-display-type entry))
+         ;; Initialize attributes list with 'index'
+         (attrs (list (cons 'index (number-to-string index)))))
+
+    ;; Add 'path' or 'name' attribute based on whether it's a file-backed entry
+    (cond
+     ((eq display-type-sym 'file)
+      ;; This covers both 'file' type entries and 'buffer' entries with a file-path.
+      ;; The value is the file-path, or bonk-entry-name if it's a pure file entry.
+      (setq attrs (append attrs
+                          (list (cons 'path (bonk--escape-xml
+                                             (or (bonk-entry-file-path entry)
+                                                 (bonk-entry-name entry))))))))
+     ((eq display-type-sym 'buffer)
+      ;; This covers 'buffer' type entries without a file-path (e.g., *scratch*).
+      ;; The value is the buffer name.
+      (setq attrs (append attrs
+                          (list (cons 'name (bonk--escape-xml (bonk-entry-name entry))))))))
+
+    ;; Add 'startLine' and 'endLine' attributes if a line range is present
+    (when (car rng)
+      (setq attrs (append attrs
+                          (list (cons 'startLine (number-to-string (car rng)))
+                                (cons 'endLine   (number-to-string (cdr rng)))))))
+
+    ;; Construct the final XML string for this document entry
     (concat
-     ;; <document> tag
-     i-document (format "<document index=\"%s\">\n" (number-to-string index))
-
-     ;; <source> tag - content is now raw path/name, attributes escaped
-     i-inner (format "<source%s>%s</source>\n"
-                     (bonk--format-attrs source-attrs)
-                     (bonk--escape-xml source-text)) ; Escape the source text (filename/buffer name)
-
-     ;; <document_content> tag
-     i-inner "<document_content>"
+     i-document "<document" (bonk--format-attrs attrs) ">"
      (if (string-empty-p entry-raw-content)
          ""
        (concat "\n" ; Start content on a new line
-	       entry-raw-content))
-     i-inner "</document_content>\n"
-
-     ;; Closing </document> tag
-     i-document "</document>")))
+               entry-raw-content
+               "\n"
+               i-document)) ; Indent for closing tag to match opening
+     "</document>")))
 
 
 ;;; Markdown helper ----------------------------------------------------------
@@ -677,17 +683,20 @@ The <document> tag itself will be indented by +2, its children (+4), and content
 ;;; Export backends ----------------------------------------------------------
 
 (defun bonk--context-as-xml (ctx-name plist)
-  "Return context named CTX-NAME (plist PLIST) as XML string."
+  "Return context named CTX-NAME (plist PLIST) as XML string.
+Returns an empty string if there are no entries."
   (let* ((entries (plist-get plist :entries))
          (doc-index 0)
          (document-strings (list)))
+    (when (seq-empty-p entries) ; Correctly returns empty string if no entries
+      (cl-return-from bonk--context-as-xml ""))
     (dolist (entry entries)
       (cl-incf doc-index)
       (push (bonk-format-entry-xml entry doc-index 0) document-strings))
     (concat "<documents>"
-            (if document-strings "\n" "") ; Only add newline if there are documents
+            (if document-strings "\n" "")
             (mapconcat 'identity (nreverse document-strings) "\n")
-            (if document-strings "\n" "") ; Only add newline if there are documents
+            (if document-strings "\n" "")
             "</documents>")))
 
 (defun bonk--context-as-markdown (ctx-name plist)
