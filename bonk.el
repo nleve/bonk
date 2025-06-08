@@ -682,7 +682,7 @@ The <document> tag itself will be indented by +2, its children (+4), and content
 
 ;;; Export backends ----------------------------------------------------------
 
-(defun bonk--context-as-xml (ctx-name plist)
+(cl-defun bonk--context-as-xml (ctx-name plist)
   "Return context named CTX-NAME (plist PLIST) as XML string.
 Returns an empty string if there are no entries."
   (let* ((entries (plist-get plist :entries))
