@@ -767,6 +767,8 @@ without asking if FILE exists.  Respects `bonk-context-export-backend`."
       (define-key map (kbd "d")   #'bonk-view-remove-entry)
       (define-key map (kbd "DEL") #'bonk-view-remove-entry)
       (define-key map (kbd "RET") #'bonk-view-goto-source)
+      (define-key map (kbd "M-k") #'bonk-view-move-entry-up)
+      (define-key map (kbd "M-j") #'bonk-view-move-entry-down)
       map)
     "Keymap for `bonk-view-mode'.  Inherits `magit-section-mode-map'.")
 
@@ -851,6 +853,53 @@ If point is inside the body     → same char offset inside the region."
     ;; That keeps TAB for folding, d/DEL for deletion, etc.,
     ;; without having to re-list any keys.
     (evil-make-overriding-map bonk-view-mode-map 'motion))
+
+  (defun bonk--view-move-entry (direction)
+    "Move the Bonk entry at point up (-1) or down (+1)."
+    (let* ((section (magit-current-section))
+           (entry   (and section
+                         (eq (oref section type) 'entry)
+                         (oref section value))))
+      (when entry
+        (let* ((plist (bonk--context-plist bonk-current-context))
+               (entries (plist-get plist :entries))
+               (pos (cl-position entry entries :test #'eq))
+               (len (length entries))
+               (view-buffer (current-buffer))) ;; Capture the view buffer
+          (when (and pos
+                     (cond ((> direction 0) (< pos (1- len))) ; down
+                           ((< direction 0) (> pos 0))   ; up
+                           (t nil)))
+            ;; Create a new list with swapped entries.
+            (let* ((new-entries (copy-sequence entries)))
+              (cl-rotatef (nth pos new-entries) (nth (+ pos direction) new-entries))
+              (puthash bonk-current-context (plist-put plist :entries new-entries) bonk--contexts))
+
+            ;; Persist changes
+            (bonk--update-ts bonk-current-context)
+            (bonk--save-state)
+
+            ;; Refresh view and restore point to the moved entry
+            (with-current-buffer view-buffer
+              (let ((inhibit-read-only t)
+                    ;; Capture the entry we're moving
+                    (moved-entry entry))
+                (bonk--view-refresh)
+                ;; Find the new section and go to it
+                (when-let ((new-section
+                            (cl-find-if (lambda (s) (eq (oref s value) moved-entry))
+                                        (oref magit-root-section children))))
+                  (goto-char (oref new-section start))))))))))
+
+  (defun bonk-view-move-entry-up ()
+    "Move the Bonk entry at point up in the list."
+    (interactive)
+    (bonk--view-move-entry -1))
+
+  (defun bonk-view-move-entry-down ()
+    "Move the Bonk entry at point down in the list."
+    (interactive)
+    (bonk--view-move-entry 1))
 
   (defun bonk--view-refresh ()
     "Populate the Bonk view buffer with collapsible sections."
