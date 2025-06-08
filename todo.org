@@ -2,6 +2,20 @@
 * DONE GPTEL integration (make gptel call bonk-format-context?)
 * DONE quick remove a context entry
 * DONE Pulse region when visiting it from bonk-view
+* DONE make sure marker rehydration works properly from persistence
+maybe this is actually "make sure files with lines are upgraded to buffers with regions when opened"?
+* DONE Reorder context order within bonk-view using alt+j / alt+k
+**   **What to do:** Allow users to visually reorder entries within the `*Bonk View*` buffer, and persist this order.
+**   **Implementation Idea:**
+    *   This is a significant change. `bonk--contexts` currently stores entries as a simple list. To maintain order, this list must be directly manipulated.
+    *   Implement functions `bonk-view-move-entry-up` and `bonk-view-move-entry-down`. These functions would:
+        1.  Identify the `bonk-entry` struct at point in `*Bonk View*`.
+        2.  Find its index in the `plist-get`'d list of entries for the current context.
+        3.  Rearrange the list (swapping positions).
+        4.  Update the `bonk--contexts` hash table with the modified list.
+        5.  Call `bonk--save-state` and `bonk--refresh-view-buffers`.
+    *   Bind these to `M-j` and `M-k` in `bonk-view-mode-map`.
+* DONE don't include <document></document> when there's no context entries
 * TODO better indicators in buffer (fringe?)
 * TODO better indicators in dired
 * TODO better indicators in ibuffer
@@ -23,17 +37,6 @@ bonk-select-export-backend using completing-read. map to a keybinding in bonk-ma
 - Use `magit-section-set-visibility` in `bonk--view-refresh` based on this custom variable.
 * TODO bonk-kill to perform (kill-new bonk-format-context)
 * TODO bonk-kill-multi (kill-new bonk-format-contexts)
-* TODO Reorder context order within bonk-view using alt+j / alt+k
-**   **What to do:** Allow users to visually reorder entries within the `*Bonk View*` buffer, and persist this order.
-**   **Implementation Idea:**
-    *   This is a significant change. `bonk--contexts` currently stores entries as a simple list. To maintain order, this list must be directly manipulated.
-    *   Implement functions `bonk-view-move-entry-up` and `bonk-view-move-entry-down`. These functions would:
-        1.  Identify the `bonk-entry` struct at point in `*Bonk View*`.
-        2.  Find its index in the `plist-get`'d list of entries for the current context.
-        3.  Rearrange the list (swapping positions).
-        4.  Update the `bonk--contexts` hash table with the modified list.
-        5.  Call `bonk--save-state` and `bonk--refresh-view-buffers`.
-    *   Bind these to `M-j` and `M-k` in `bonk-view-mode-map`.
 * TODO rename context
     *   Implement `bonk-rename-context`. It would:
         1.  Prompt for the old context name (with completion).
@@ -59,8 +62,6 @@ bonk-select-export-backend using completing-read. map to a keybinding in bonk-ma
 - Add a `char-count` property to `bonk-entry-create`.
 - Update this count whenever content is retrieved or updated.
 - Display character counts in the `*Bonk View*` (next to line counts) and in the formatted output.
-* DONE make sure marker rehydration works properly from persistence
-maybe this is actually "make sure files with lines are upgraded to buffers with regions when opened"?
 * TODO quick actions at the context level
 - `bonk-clear-context`: Remove all entries from the current context.
 - `bonk-duplicate-context`: Create a new context with all the same entries as an existing one.
