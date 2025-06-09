@@ -437,6 +437,29 @@ Stores it as markers so edits elsewhere don’t shift our region."
       :start-marker sm
       :end-marker   em))))
 
+;;;###autoload
+(defun bonk-add-current ()
+  "Intelligently toggle the 'current thing' in the active context.
+
+This command follows a priority system:
+1. If a region is active, it toggles that region.
+2. If no region is active and the buffer is backed by a file,
+   it toggles the entire file.
+3. Otherwise, it toggles the current buffer."
+  (interactive)
+  (cond
+   ;; Priority 1: An active region is the most specific intent.
+   ((use-region-p)
+    (bonk-add-region (region-beginning) (region-end)))
+
+   ;; Priority 2: A file-backed buffer.
+   ((buffer-file-name)
+    (bonk-add-file (buffer-file-name)))
+
+   ;; Priority 3: Any other buffer (like *scratch*).
+   (t
+    (bonk-add-buffer (current-buffer)))))
+
 
 ;;; Dired / Ibuffer integration ---------------------------------------------
 
@@ -1243,6 +1266,7 @@ This function is intended for `gptel-prompt-filter-hook'."
 (define-key bonk-map (kbd "f") #'bonk-add-file)
 (define-key bonk-map (kbd "b") #'bonk-add-buffer)
 (define-key bonk-map (kbd "r") #'bonk-add-region)
+(define-key bonk-map (kbd "a") #'bonk-add-current)
 (define-key bonk-map (kbd "v") #'bonk-view)
 (define-key bonk-map (kbd "e") #'bonk-format-context) ; Export to buffer
 (define-key bonk-map (kbd "w") #'bonk-save-context)   ; Write to file
