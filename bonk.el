@@ -855,7 +855,7 @@ If point is inside the body     → same char offset inside the region."
     (evil-make-overriding-map bonk-view-mode-map 'motion))
 
   (defun bonk--view-move-entry (direction)
-    "Move the Bonk entry at point up (-1) or down (+1)."
+    "Move the Bonk entry at point up (-1) or down (+1), wrapping around."
     (let* ((section (magit-current-section))
            (entry   (and section
                          (eq (oref section type) 'entry)
@@ -866,13 +866,10 @@ If point is inside the body     → same char offset inside the region."
                (pos (cl-position entry entries :test #'eq))
                (len (length entries))
                (view-buffer (current-buffer))) ;; Capture the view buffer
-          (when (and pos
-                     (cond ((> direction 0) (< pos (1- len))) ; down
-                           ((< direction 0) (> pos 0))   ; up
-                           (t nil)))
+          (when (and pos (> len 1))
             ;; Create a new list with swapped entries.
-            (let* ((new-entries (copy-sequence entries)))
-              (cl-rotatef (nth pos new-entries) (nth (+ pos direction) new-entries))
+            (let ((new-entries (copy-sequence entries)))
+              (cl-rotatef (nth pos new-entries) (nth (mod (+ pos direction) len) new-entries))
               (puthash bonk-current-context (plist-put plist :entries new-entries) bonk--contexts))
 
             ;; Persist changes

@@ -16,6 +16,7 @@ maybe this is actually "make sure files with lines are upgraded to buffers with 
         5.  Call `bonk--save-state` and `bonk--refresh-view-buffers`.
     *   Bind these to `M-j` and `M-k` in `bonk-view-mode-map`.
 * DONE don't include <document></document> when there's no context entries
+* DONE let context reordering wrap
 * TODO better indicators in buffer (fringe?)
 * TODO better indicators in dired
 * TODO better indicators in ibuffer
