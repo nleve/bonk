@@ -88,3 +88,4 @@ bonk-select-export-backend using completing-read. map to a keybinding in bonk-ma
     *   This central UI would greatly improve context management.
 * TODO bonk-add-region adds one too many lines. the last line should not be included.
 * TODO create a bonk-switch-context-local (switches context but only buffer-local)
+* TODO fix evil navigation bug with point going to end of line
